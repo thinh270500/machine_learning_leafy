@@ -4,6 +4,7 @@ import torch
 from torchvision import models, transforms
 from PIL import Image
 import numpy as np
+import pillow_heif  # <- hỗ trợ đọc HEIC / HEIF
 
 # =====================================================
 # 1. LOAD MODEL
@@ -18,7 +19,7 @@ def load_model():
         torch.nn.Linear(256, 2)
     )
     try:
-        model.load_state_dict(torch.load("model/resnet50_leaf_disease_final.pt", map_location="cpu"))
+        model.load_state_dict(torch.load("model/resnet50_leaf_final_best.pt", map_location="cpu"))
         st.success("Model đã tải thành công!")
     except Exception as e:
         st.error(f"Lỗi tải model: {e}")
@@ -63,14 +64,41 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("<h1 style='text-align: center; color: #2E7D32;'>Leafy Phát Hiện Bệnh Lá Cây</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; font-size: 18px;'>Upload ảnh → Nhận kết quả tức thì!</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; font-size: 18px;'>Kéo thả hoặc upload ảnh → Nhận kết quả tức thì!</p>", unsafe_allow_html=True)
 
-uploaded_file = st.file_uploader("", type=['jpg', 'jpeg', 'png'], label_visibility="collapsed")
+# =====================================================
+# 4. FILE UPLOADER – hỗ trợ HEIC, HEIF, WEBP...
+# =====================================================
+uploaded_file = st.file_uploader(
+    "Kéo thả ảnh vào đây hoặc chọn file",
+    type=['jpg', 'jpeg', 'png', 'heic', 'heif', 'jfif', 'webp', 'bmp', 'tiff'],
+    label_visibility="collapsed"
+)
 
+# Xử lý mở ảnh HEIC/HEIF
+def load_image(file):
+    file_type = file.name.lower()
+
+    # HEIC / HEIF
+    if file_type.endswith((".heic", ".heif")):
+        heif_file = pillow_heif.read_heif(file)
+        return Image.frombytes(
+            heif_file.mode,
+            heif_file.size,
+            heif_file.data,
+            "raw"
+        )
+
+    # Mặc định dùng PIL
+    return Image.open(file).convert("RGB")
+
+
+# =====================================================
+# 5. DỰ ĐOÁN
+# =====================================================
 if uploaded_file is not None and model is not None:
-    img = Image.open(uploaded_file).convert("RGB")
+    img = load_image(uploaded_file)
 
-    # CHIA 2 CỘT NGANG
     col_left, col_right = st.columns(2)
 
     with col_left:
@@ -85,9 +113,9 @@ if uploaded_file is not None and model is not None:
                 pred = torch.argmax(prob).item()
                 conf = prob[pred].item() * 100
 
-        label = "KHỎE MẠNH" if pred == 0 else "BỊ BỆNH"
-        color = "#4CAF50" if pred == 0 else "#f44336"
-        border_color = "#4CAF50" if pred == 0 else "#f44336"
+        label = "BỊ BỆNH" if pred == 0 else "KHỎE MẠNH"
+        color = "#4CAF50" if pred == 1 else "#f44336"
+        border_color = color
 
         st.markdown(f"""
         <div class="result-box" style="border-color: {border_color};">
@@ -96,16 +124,14 @@ if uploaded_file is not None and model is not None:
         </div>
         """, unsafe_allow_html=True)
 
-        # Biểu đồ cột
-        chart_data = {"Khỏe mạnh": prob[0].item()*100, "Bị bệnh": prob[1].item()*100}
+        chart_data = {"Bị bệnh": prob[0].item()*100, "Khỏe mạnh": prob[1].item()*100}
         st.bar_chart(chart_data)
 
-        # Lời khuyên
-        if pred == 1:
-            st.error("**Cảnh báo:** Lá có dấu hiệu bệnh. Kiểm tra sâu, nấm, thiếu nước.")
+        if pred == 0:
+            st.error("**Cảnh báo:** Lá có dấu hiệu bệnh. Có thể liên quan tới sâu, nấm hoặc vi khuẩn.")
         else:
             st.success("**Tuyệt vời!** Lá hoàn toàn khỏe mạnh.")
 
 # Footer
 st.markdown("---")
-st.markdown("<p style='text-align: center; color: #666;'>Model: ResNet50 | Acc: 85.79% |</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #666;'>Model: ResNet50 | Acc: 88.8%</p>", unsafe_allow_html=True)
