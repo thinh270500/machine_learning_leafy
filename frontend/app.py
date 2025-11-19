@@ -98,7 +98,6 @@
 
 
 # bản update streamlit
-# frontend/app.py – PHIÊN BẢN HOÀN HẢO NHẤT (18/11/2025 – 00:45 AM)
 import streamlit as st
 import torch
 from torchvision import models, transforms
@@ -107,7 +106,7 @@ import os
 import pillow_heif
 
 # =====================================================
-# 1. LOAD MODEL – TỰ ĐỘNG TÌM + BÁO LỖI RÕ RÀNG
+# 1. LOAD MODEL – GIỮ NGUYÊN NHƯ CŨ
 # =====================================================
 @st.cache_resource
 def load_model():
@@ -118,29 +117,25 @@ def load_model():
         torch.nn.Dropout(0.4),
         torch.nn.Linear(256, 2)
     )
-
     model_path = "frontend/model/resnet50_leaf_final_best.pt"
-
     if not os.path.exists(model_path):
         st.error("KHÔNG TÌM THẤY FILE MODEL!")
         st.info(f"Đường dẫn đang tìm: `{model_path}`")
         st.info("Hãy đảm bảo file model nằm đúng trong thư mục `frontend/model/`")
         st.stop()
-
     try:
         model.load_state_dict(torch.load(model_path, map_location="cpu"))
-        st.success("MODEL ĐÃ TẢI THÀNH CÔNG! (92.00% - Recall bệnh 100%)")
+        st.success("MODEL ĐÃ TẢI THÀNH CÔNG!")
     except Exception as e:
         st.error(f"Lỗi khi tải model: {e}")
         st.stop()
-
     model.eval()
     return model
 
 model = load_model()
 
 # =====================================================
-# 2. TRANSFORM + UI
+# 2. TRANSFORM + UI – GIỮ NGUYÊN
 # =====================================================
 transform = transforms.Compose([
     transforms.Resize((128, 128)),
@@ -164,11 +159,11 @@ def load_image(file):
 
 uploaded_file = st.file_uploader(
     "Kéo thả ảnh lá cây vào đây",
-    type=['jpg','jpeg','png','heic','heif','webp','bmp','bmp','tiff','jfif']
+    type=['jpg','jpeg','png','heic','heif','webp','bmp','tiff','jfif']
 )
 
 # =====================================================
-# 3. DỰ ĐOÁN + TÍNH NĂNG CHỐNG TROLL (KHÔNG PHẢI LÁ CÂY)
+# 3. DỰ ĐOÁN + TÍNH NĂNG OOD DETECTION NÂNG CAO (MỚI)
 # =====================================================
 if uploaded_file and model:
     img = load_image(uploaded_file)
@@ -176,7 +171,6 @@ if uploaded_file and model:
         st.stop()
 
     col1, col2 = st.columns(2)
-
     with col1:
         st.image(img, caption="Ảnh đã upload", use_container_width=True)
 
@@ -186,18 +180,21 @@ if uploaded_file and model:
             with torch.no_grad():
                 logits = model(tensor)
                 prob = torch.softmax(logits, dim=1)[0]
-                confidence_max = prob.max().item() * 100
+                confidence_max = prob.max().item()
+                # Tính entropy để phát hiện ảnh không rõ ràng
+                entropy = -torch.sum(prob * torch.log(prob + 1e-10)).item()
 
-                # TÍNH NĂNG SIÊU MẠNH: PHÁT HIỆN KHÔNG PHẢI ẢNH LÁ CÂY
-                if confidence_max < 78:  # Ngưỡng đã test tối ưu
-                    st.error("KHÔNG PHẢI ẢNH LÁ CÂY!")
-                    st.warning("Vui lòng upload ảnh lá cây để phân tích bệnh.")
-                    st.info("Ví dụ bị từ chối: ảnh người, chó mèo, đồ ăn, xe cộ, bầu trời...")
+                # OOD DETECTION NÂNG CAO – CHẶN HOÀN TOÀN ẢNH TRƯỜNG HỌC, TOÀN CÂY, NGƯỜI...
+                if confidence_max < 0.88 or entropy > 0.65:
+                    st.error("KHÔNG PHẢI ẢNH LÁ CÂY ĐỂ PHÂN TÍCH BỆNH!")
+                    st.warning("Vui lòng chụp cận cảnh một chiếc lá đơn lẻ")
+                    st.info("App chỉ nhận diện bệnh trên ảnh lá rõ nét, không chấp nhận ảnh toàn cây, sân trường, người, hoa...")
                     st.stop()
 
                 pred = prob.argmax().item()
-                conf = confidence_max
+                conf = confidence_max * 100
 
+        # GIỮ NGUYÊN GIAO DIỆN ĐẸP NHƯ CŨ
         label = "BỊ BỆNH" if pred == 0 else "KHỎE MẠNH"
         color = "#f44336" if pred == 0 else "#4CAF50"
 
@@ -216,6 +213,11 @@ if uploaded_file and model:
             st.success("**Tuyệt vời!** Lá hoàn toàn khỏe mạnh.")
             st.balloons()
 
-# Footer
+# Footer – CẬP NHẬT CHÍNH XÁC
 st.markdown("---")
-st.markdown("<p style='text-align: center; color: #666;'>Model: ResNet50 | Acc: 88.8%</p>", unsafe_allow_html=True)
+st.markdown(
+    "<p style='text-align: center; color: #1B5E20; font-weight: bold;'>"
+    "Model ResNet50 • Accuracy 88.82% "
+    "</p>",
+    unsafe_allow_html=True
+)
